@@ -1,2 +1,2 @@
 # Lenet
-lenet
+Using pytorch to build LeNet model
