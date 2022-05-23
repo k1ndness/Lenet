@@ -9,9 +9,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-
-
-# Training settings
+# 參數設定
 parser = argparse.ArgumentParser(description='PyTorch Lenet Example')
 parser.add_argument('--no_download_data', action='store_true', default=False,
                     help='Do not download data')
@@ -33,7 +31,7 @@ parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='how many batches to wait before logging training status')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
-
+#確定使用GPU
 print(torch.cuda.is_available())
 print(args.cuda)
 
@@ -50,7 +48,6 @@ train_data = torchvision.datasets.MNIST(
     root='./mnist',
     train=True,
     transform=torchvision.transforms.ToTensor(), 
-    #把灰階從0~255壓縮到0~1
     download=False
 )
 test_data = torchvision.datasets.MNIST(
@@ -71,7 +68,7 @@ plt.show()
 
 train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = args.batch_size, shuffle=True)
 test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = args.batch_size, shuffle=True)
-
+#Lenet模型定義
 class Lenet(nn.Module):
     def __init__(self):
         super(Lenet, self).__init__()
@@ -91,12 +88,13 @@ class Lenet(nn.Module):
         x = F.tanh(self.fc2(x))
         x = F.softmax(self.fc3(x))
         return x
-
+#使用GPU
 model = Lenet()
 if args.cuda:
     model.cuda()
-
+#設定最佳化方法
 optimizer = optim.SGD(model.parameters(),lr=args.lr,momentum=args.momentum)     
+#定義訓練函數
 def train(epoch):
     model.train()
     losses = []
@@ -113,7 +111,7 @@ def train(epoch):
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, batch_idx * len(data), len(train_loader.dataset),100. * batch_idx / len(train_loader), loss.item()))
     print("\nTrain set: Average loss: {:.4f}".format(sum(losses) / len(losses)))
-
+#定義測試函數
 def test(epoch):
     model.eval()
     test_loss = 0
@@ -133,7 +131,7 @@ def test(epoch):
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
 
-
+#進行訓練以及測試
 for epoch in range(1, args.epochs + 1):
     train(epoch)
     test(epoch)
