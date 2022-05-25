@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
 from torch.autograd import Variable
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -17,7 +18,7 @@ parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -29,6 +30,8 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='how many batches to wait before logging training status')
+parser.add_argument('--train', action='store_true', default=True,
+                    help='Do not train')                    
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 #確定使用GPU
@@ -57,16 +60,16 @@ test_data = torchvision.datasets.MNIST(
     download=False,
     )
 
-
-print(train_data.train_data.size())
-print(train_data.train_labels.size())
+#print(train_data.train_data.size())
+#print(train_data.train_labels.size())
 
 plt.imshow(train_data.train_data[0].numpy(),cmap='gray')
 plt.title('%i' % train_data.train_labels[0])
-plt.show()
-
-
+#plt.show()
+pad = nn.ZeroPad2d(2)
+#train_loader被分為(60000/batch_size)+1個batch 每個batch共有batch_size個data
 train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = args.batch_size, shuffle=True)
+#test_loader被分為(10000/batch_size)+1個batch 每個batch共有batch_size個data
 test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = args.batch_size, shuffle=True)
 #Lenet模型定義
 class Lenet(nn.Module):
@@ -74,7 +77,7 @@ class Lenet(nn.Module):
         super(Lenet, self).__init__()
         self.conv1 = nn.Conv2d(1, 6, kernel_size=5)
         self.conv2 = nn.Conv2d(6, 16, kernel_size=5)
-        self.fc1 = nn.Linear(4*4*16, 120)
+        self.fc1 = nn.Linear(5*5*16, 120)  
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
 
@@ -83,7 +86,7 @@ class Lenet(nn.Module):
         x = F.max_pool2d(x,2,2)
         x = F.tanh(self.conv2(x))
         x = F.max_pool2d(x,2,2)    
-        x = x.view(-1,4*4*16)
+        x = x.view(-1,5*5*16)
         x = F.tanh(self.fc1(x))
         x = F.tanh(self.fc2(x))
         x = F.softmax(self.fc3(x))
@@ -98,43 +101,49 @@ optimizer = optim.SGD(model.parameters(),lr=args.lr,momentum=args.momentum)
 def train(epoch):
     model.train()
     losses = []
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target) in enumerate(train_loader): #
         if args.cuda:
-            data, target = data.cuda(), target.cuda()
+            data, target = data.cuda(), target.cuda()         #使用GPU
+        data = pad(data)    
         data, target = Variable(data), Variable(target)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = F.cross_entropy(output, target)
-        loss.backward()
-        optimizer.step()
-        losses.append(loss.item())
-        if batch_idx % args.log_interval == 0:
+        optimizer.zero_grad()                                 #清空上一次的梯度，若不清空，梯度會和上一個batch特徵有關
+        output = model(data)                                  #前向傳播，計算各輸出機率
+        loss = F.cross_entropy(output, target)                #計算損失函數
+        loss.backward()                                       #反向傳播，計算梯度
+        optimizer.step()                                      #基於梯度，更新參數
+        if batch_idx % args.log_interval == 0:                #印出訓練資訊
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, batch_idx * len(data), len(train_loader.dataset),100. * batch_idx / len(train_loader), loss.item()))
-    print("\nTrain set: Average loss: {:.4f}".format(sum(losses) / len(losses)))
+ 
+    
 #定義測試函數
-def test(epoch):
-    model.eval()
+def test(Model):
+    Model.eval()
     test_loss = 0
     correct = 0
     for data, target in test_loader:
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
-        output = model(data)
-        test_loss += F.nll_loss(output, target).item()
-        pred = output.data.max(1)[1] # get the index of the max log-probability
-        correct += pred.eq(target.data).cpu().sum()
+        data = pad(data)    
+        data, target = Variable(data), Variable(target)
+        output = Model(data)                                 #模型預測各輸出之機率
+        test_loss += F.cross_entropy(output, target).item()  #計算測試LOSS
+        pred = output.data.max(1)[1]                         #獲得模型預測的機率最大值對應的數字索引 
+        correct += pred.eq(target).cpu().sum()               #比對預測結果
 
-    test_loss = test_loss
-    test_loss /= len(test_loader) # loss function already averages over batch size
+    test_loss /= len(test_loader)                           #計算平均LOSS
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
 
-#進行訓練以及測試
-for epoch in range(1, args.epochs + 1):
-    train(epoch)
-    test(epoch)
 
+if args.train :                                             #進行訓練
+    for epoch in range(1, args.epochs + 1):
+        train(epoch)
+        test(model)
+    torch.save(model.state_dict(), "mnist_Lenet.pt")        #儲存模型參數
 
-
+model2 = Lenet()                                            #用新的model確認儲存參數是否可用
+if args.cuda:
+    model2.cuda()
+model2.load_state_dict(torch.load("mnist_Lenet.pt"))        #讀取儲存的參數
+test(model2)                                                #新的model進行測式
