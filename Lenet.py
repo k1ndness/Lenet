@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from torch.autograd import Variable
+from PIL import Image
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # 參數設定
@@ -30,13 +32,13 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--train', action='store_true', default=True,
+parser.add_argument('--train', action='store_true', default=False,
                     help='Do not train')                    
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 #確定使用GPU
-print(torch.cuda.is_available())
-print(args.cuda)
+
+print('Use GPU:',args.cuda)
 
 torch.manual_seed(args.seed)
 if args.cuda:
@@ -44,33 +46,32 @@ if args.cuda:
 
 print("Number of epochs: ", args.epochs)
 print("Batch size: ", args.batch_size)
-print("Log interval: ", args.log_interval)
+#print("Log interval: ", args.log_interval)
 print("Learning rate: ", args.lr)
 
 train_data = torchvision.datasets.MNIST(
     root='./mnist',
     train=True,
-    transform=torchvision.transforms.ToTensor(), 
+    transform=torchvision.transforms.Compose([
+                torchvision.transforms.Resize((32,32)),
+                torchvision.transforms.ToTensor()
+    ]),
     download=False
 )
 test_data = torchvision.datasets.MNIST(
     root='./mnist/', 
     train=False,
-    transform=torchvision.transforms.ToTensor(),
+    transform=torchvision.transforms.Compose([
+                torchvision.transforms.Resize((32,32)),
+                torchvision.transforms.ToTensor()
+    ]),
     download=False,
     )
-
-#print(train_data.train_data.size())
-#print(train_data.train_labels.size())
-
-plt.imshow(train_data.train_data[0].numpy(),cmap='gray')
-plt.title('%i' % train_data.train_labels[0])
-#plt.show()
-pad = nn.ZeroPad2d(2)
 #train_loader被分為(60000/batch_size)+1個batch 每個batch共有batch_size個data
 train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = args.batch_size, shuffle=True)
 #test_loader被分為(10000/batch_size)+1個batch 每個batch共有batch_size個data
 test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = args.batch_size, shuffle=True)
+
 #Lenet模型定義
 class Lenet(nn.Module):
     def __init__(self):
@@ -82,29 +83,31 @@ class Lenet(nn.Module):
         self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x):
-        x = F.tanh(self.conv1(x))
-        x = F.max_pool2d(x,2,2)
-        x = F.tanh(self.conv2(x))
+        x = torch.tanh(self.conv1(x))
+        x = torch.max_pool2d(x,2,2)
+        x = torch.tanh(self.conv2(x))
         x = F.max_pool2d(x,2,2)    
         x = x.view(-1,5*5*16)
-        x = F.tanh(self.fc1(x))
-        x = F.tanh(self.fc2(x))
-        x = F.softmax(self.fc3(x))
+        x = torch.tanh(self.fc1(x))
+        x = torch.tanh(self.fc2(x))
+        x = F.softmax(self.fc3(x),dim=1)
         return x
+
 #使用GPU
 model = Lenet()
 if args.cuda:
     model.cuda()
+
 #設定最佳化方法
 optimizer = optim.SGD(model.parameters(),lr=args.lr,momentum=args.momentum)     
+
 #定義訓練函數
 def train(epoch):
     model.train()
     losses = []
     for batch_idx, (data, target) in enumerate(train_loader): #
         if args.cuda:
-            data, target = data.cuda(), target.cuda()         #使用GPU
-        data = pad(data)    
+            data, target = data.cuda(), target.cuda()         #使用GPU   
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()                                 #清空上一次的梯度，若不清空，梯度會和上一個batch特徵有關
         output = model(data)                                  #前向傳播，計算各輸出機率
@@ -122,8 +125,7 @@ def test(Model):
     correct = 0
     for data, target in test_loader:
         if args.cuda:
-            data, target = data.cuda(), target.cuda()
-        data = pad(data)    
+            data, target = data.cuda(), target.cuda()  
         data, target = Variable(data), Variable(target)
         output = Model(data)                                 #模型預測各輸出之機率
         test_loss += F.cross_entropy(output, target).item()  #計算測試LOSS
@@ -147,3 +149,20 @@ if args.cuda:
     model2.cuda()
 model2.load_state_dict(torch.load("mnist_Lenet.pt"))        #讀取儲存的參數
 test(model2)                                                #新的model進行測式
+
+ori_img = Image.open('3.png').convert('L')                  #透過小畫家自製手寫數字圖
+t = torchvision.transforms.Compose([
+    torchvision.transforms.Resize((32, 32)),
+    torchvision.transforms.ToTensor(),
+    torchvision.transforms.Normalize((0.1307,), (0.3081,))
+])
+img = torch.autograd.Variable(t(ori_img).unsqueeze(0))
+img = img.cuda()
+
+model2.eval()
+output = model2(img)                                        #輸出預測分布
+pred = output.data.max(1)[1].item()                         #判定預測結果
+
+plt.imshow(ori_img,cmap='gray')             
+plt.title('Prediction: %i' % pred ,fontsize = 35)           
+plt.show()                                                  #顯示數字圖與預測結果
